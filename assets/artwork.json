@@ -1,0 +1,19 @@
+{
+  "tool": "Built-in ImageGen",
+  "prompt_format": "shared_prompt + one space + scene_prompt",
+  "shared_prompt": "Create ONE original landscape environmental key art bitmap for a premium Korean turn-based survival videogame. Wide panoramic 2:1 or 16:9 landscape composition, edge to edge image, no frames. Sophisticated hand-pixelled 1990s adventure game environmental background, cinematic pixel art with deliberate crisp square pixel clusters, restrained dithering, worn urban architecture, cinematic layered depth and dramatic atmospheric lighting. It must immediately read as lovingly constructed pixel art, not smooth vector illustration, not a photograph, not 3D voxel cubes. Charcoal and deep desaturated petroleum-blue shadows, weathered stone, controlled warm practical highlights. Composition framed as a wide desktop-game establishing shot, important scenery stays in the central horizontal band (allows slight crops at top and bottom). Quiet dark lower left supports HTML title later. Absolutely no text, typography, HUD, logos, watermarks, gibberish lettering, decorative borders or collage.",
+  "scenes": [
+    {
+      "file": "fire.webp",
+      "scene_prompt": "Evening over a compact Korean city office district. Strong focal point in the CENTER-RIGHT: mid-rise (around five storeys) concrete office building in three-quarter view with a group of brilliantly orange burning windows on one upper floor and a tall dark smoke plume, silhouettes of rooftops, power cables, and a small fire engine below in the narrow street. Very dark foreground building and rooftops on the LEFT quarter, atmospheric slate-teal distant skyline and smoky amber sky, selective bright tangerine lighting. A city still recognizable and inhabited, not post-apocalyptic ruins."
+    },
+    {
+      "file": "flood.webp",
+      "scene_prompt": "A Korean urban market street after torrential monsoon rain at blue hour, seen from a slight elevation. In the CENTER-RIGHT, swollen blue-green floodwater fills the depressed road between low shopfronts, reflecting warm rescue beacons and a row of dim amber windows. A dry elevated pedestrian walkway spans between buildings above the water and a distant hillside rises beyond. Fine diagonal rain, streetlamps, rooftop outlines. Dark layered silhouettes on LEFT quarter, brighter rain and lamps on the right. Emphasize deep turquoises and a few amber lights. No person wading, no active traffic in water."
+    },
+    {
+      "file": "quake.webp",
+      "scene_prompt": "A Korean neighborhood public library and town square just after an earthquake near sunset. CENTER-RIGHT focus: recognizable low brick civic library, askew facade panels, dusty pale amber light spilling between buildings, a few dislodged masonry blocks and visibly cracked foreground asphalt, empty open neighborhood sports ground beyond buildings. Dark powerlines across sky, muted teal distant apartments, grey-gold illuminated dust. Dark foreground building shapes on LEFT quarter, ochre and desaturated salmon highlights on right. Believable moderate earthquake damage, no fire, no flood, no people in peril."
+    }
+  ]
+}
