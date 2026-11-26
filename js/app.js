@@ -83,17 +83,20 @@
       image.src = shot.src;
     }
     const weather = game.shaking(state) ? 0.8 : hazardCost / 4;
-    byId("scene-view").style.setProperty("--weather-strength", state.status === "playing" ? weather : 0);
-    const alert = shot.highWater ? "수위 상승" : scenario.alert;
+    const inField = state.status === "playing" && state.node !== "safe";
+    byId("scene-view").style.setProperty("--weather-strength", inField ? weather : 0);
+    const alert = state.node === "safe" ? "대피 지점 도착" : shot.highWater ? "수위 상승" : scenario.alert;
     byId("alert-label").textContent = state.status === "playing" ? alert : game.statusLabel(state);
     const badgeIcon = byId("alert-label").previousElementSibling;
-    badgeIcon.dataset.icon = state.status === "playing" ? "alert" : "check";
+    badgeIcon.dataset.icon = inField ? "alert" : "check";
     art.paint(badgeIcon);
     const turn = state.elapsed + (state.status === "playing" ? 1 : 0);
     byId("turn-number").textContent = String(turn).padStart(2, "0");
     byId("turn-counter").setAttribute("aria-label", (state.status === "playing" ? "현재 " : "총 ") + turn + "턴");
-    byId("goal-label").textContent = state.status === "playing" ? "현재 목표" : "마지막 위치";
-    byId("objective").textContent = game.objective(state);
+    byId("goal-label").textContent = state.status === "playing" ? "최종 목표" : "대응 결과";
+    byId("objective").textContent = state.status === "playing" ? game.finalGoal(state) : game.statusLabel(state);
+    byId("step-label").textContent = state.status === "playing" ? "지금 할 일" : "마지막 위치";
+    byId("step-objective").textContent = game.objective(state);
     byId("stage-count").textContent = state.known.areas.length;
     byId("map-origin").textContent = "출발 정보 · " + difficulty.summary(state.settings);
   }
@@ -128,11 +131,12 @@
     byId("scene-signal").textContent = game.situation(state).title;
     byId("report-state").textContent = game.reportStatus(state);
     const live = state.status === "playing", label = byId("status-label");
-    label.dataset.level = live ? "warn" : "normal";
+    const atDestination = state.node === "safe";
+    label.dataset.level = live && !atDestination ? "warn" : "normal";
     label.textContent = game.statusLabel(state);
-    const text = state.archived ? "이전 규칙으로 진행한 판입니다." : state.id === "fire" ? "연기 유입과 대피 방송을 확인하세요." :
+    const text = state.archived ? "이전 규칙으로 진행한 판입니다." : atDestination ? "이곳에서 현장 담당자의 안내를 따르세요." : state.id === "fire" ? "연기 유입과 대피 방송을 확인하세요." :
       state.id === "quake" ? "진동이 다시 느껴지면 현재 위치에서 몸을 보호하세요." : "물살이 가로막는 길로 들어가지 마세요.";
-    byId("hazard-note").replaceChildren(art.icon("alert"), document.createTextNode(text));
+    byId("hazard-note").replaceChildren(art.icon(atDestination ? "flag" : "alert"), document.createTextNode(text));
   }
 
   function actions(scenario) {
@@ -270,9 +274,9 @@
   }
 
   function openSetup(id, venue) {
-    startMenu.showSetup(id, venue, showDialog, (disaster, place, settings) => {
+    startMenu.showSetup(id, venue, showDialog, (disaster, place, settings, opening) => {
       storage.setSettings(disaster, place, settings);
-      enterRun(game.newRun(disaster, undefined, place, settings));
+      enterRun(game.newRun(disaster, undefined, place, settings, opening));
     }, enterRun);
   }
 
@@ -286,7 +290,7 @@
   }
 
   function restartRun() {
-    enterRun(game.newRun(state.id, undefined, state.venue, storage.settingsFor(state.id, state.venue)));
+    enterRun(game.newRun(state.id, undefined, state.venue, storage.settingsFor(state.id, state.venue), state.opening));
   }
 
   function showDialog(title, ...contents) {
@@ -339,9 +343,10 @@
     const rules = element("ul", "help-rules");
     for (const text of [
       "현재 위치의 연기, 물살, 흔들림과 안내 방송을 읽고 행동을 고르세요. 지도를 보거나 선택지를 읽는 동안에는 턴이 지나지 않습니다.",
-      "대피, 몸 보호, 고립 신고는 선택하면 실행됩니다. ‘눈앞의 대피 표지 읽기’에서만 주사위를 굴려 추가로 읽어 낸 길을 지도에 기록합니다.",
+      "대피, 몸 보호, 119 신고는 선택하면 실행됩니다. 표지에서 추가 경로를 읽을 때와 신고 지점에 구조대가 접근할 때에는 주사위를 굴립니다.",
       "집에서는 지도를 기억하고, 직장에서는 일부를 기억합니다. 낯선 여행지는 현재 위치에서 시작합니다. 게임 시작과 난이도 설정에서 지도와 표지 단서를 조정할 수 있습니다.",
-      "문을 닫고 실내에서 방송을 듣거나 고립 위치를 신고하고 구조를 기다리는 것도 상황에 맞는 훈련 결과입니다. 여기에 나오는 주소와 119 신고는 게임 속 상황입니다.",
+      "매 판의 목표는 안전한 대피 지점에 도착해 인원과 몸 상태를 확인하는 것입니다. 대피 방송이나 119가 통행을 확인한 길은 직접 이동할 수 있습니다.",
+      "고립 신고 뒤에는 우회로를 문의하거나 구조대를 기다릴 수 있습니다. 게임에서 한 번 주사위를 굴려 4 이상이면 구조대가 합류합니다. 접근이 지연되면 신고 위치에 머무르며 대체 피난로 안내를 받으세요. 게임 속 주소와 신고를 사용합니다.",
       "게임은 장소별로 자동 저장됩니다. 메뉴에서 현재 판을 파일로 저장하거나 불러올 수 있습니다. 숫자 키로 화면의 행동 카드를 선택할 수 있습니다."
     ]) rules.append(element("li", "", text));
     const refs = element("details", "help-detail");

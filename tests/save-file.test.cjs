@@ -60,7 +60,8 @@ test("wrong formats, unsupported versions and impossible journals cannot replace
     data => { data.format = "different-game"; },
     data => { data.version = 2; },
     data => { data.run.id = "missing"; },
-    data => { data.run.version = 6; },
+    data => { data.run.version = 7; },
+    data => { data.run.opening = "blocked"; },
     data => { data.run.seed = -7; },
     data => { data.run.venue = "missing"; },
     data => { data.run.steps = [{ id: "search", face: 7 }]; },
@@ -120,7 +121,7 @@ test("a failed autosave stays available for file export even when smaller settin
   assert.deepEqual(files.decode(files.encode(store.find("quake", "work"))).run, run);
 });
 
-test("continuing a v4 slot writes a v5 journal without replacing the original save", () => {
+test("continuing a v4 slot writes a current journal without replacing the original save", () => {
   const { store, values } = storageFixture();
   const archive = globalThis.DisasterFieldV4;
   const old = archive.newRun("fire", 2, "travel");
@@ -134,5 +135,42 @@ test("continuing a v4 slot writes a v5 journal without replacing the original sa
   store.save(continued);
   assert.equal(values.get(key), data);
   assert.equal(store.find("fire", "travel").node, "last");
-  assert.equal(JSON.parse(values.get("disaster-escape.v5.run.fire.travel")).version, 5);
+  assert.equal(JSON.parse(values.get("disaster-escape.v6.run.fire.travel")).version, 6);
+});
+
+test("v5 waiting endings reopen on site while physical escapes stay complete in files and autosaves", t => {
+  t.mock.method(Math, "random", noRoll);
+  const scenarios = [
+    ["fire", 0, ["protect", "monitor"], "playing", "start"],
+    ["fire", 1, ["protect", "report", "wait"], "playing", "start"],
+    ["fire", 2, ["move:b", "move:last", "escape", "report"], "escaped", "safe"],
+    ["flood", 0, ["move:b", "move:last", "escape"], "escaped", "safe"]
+  ];
+  for (const [id, seed, steps, status, node] of scenarios) {
+    const record = { version: 5, id, seed, venue: "home", settings: { layout: "full", supplies: "full" }, previous: null, steps };
+    const run = files.decode(JSON.stringify({ format: "disaster-escape-save", version: 1, run: record })).run;
+    assert.equal(run.status, status); assert.equal(run.node, node);
+    if (status === "playing") {
+      assert.equal(game.guidedExit(run), null);
+      const options = game.choices(run).filter(a => !a.unavailable).map(a => a.id);
+      assert.deepEqual(options, seed === 0 ? ["monitor"] : ["wait", "rescue-check"]);
+      assert.equal(run.elapsed, 2);
+    }
+    assert.deepEqual(files.decode(files.encode(run)).run, run);
+    const { store: local, values: slots } = storageFixture();
+    const key = "disaster-escape.v5.run." + id + ".home";
+    slots.set(key, JSON.stringify(record));
+    assert.deepEqual(local.find(id, "home"), run);
+    local.save(run);
+    assert.equal(slots.get(key), JSON.stringify(record));
+    assert.deepEqual(local.find(id, "home"), run);
+    assert.equal(game.restore(id, { ...record, steps: [...steps, "settle"] }), null);
+    if (status === "playing") {
+      if (seed === 0) assert(game.advance(run, "monitor", noRoll));
+      else assert(game.advance(run, "rescue-check", () => 0.99));
+      for (const action of ["move:b", "move:last", "escape", "settle"]) assert(game.advance(run, action, noRoll));
+      assert.equal(run.status, seed === 0 ? "escaped" : "rescued");
+      assert.deepEqual(files.decode(files.encode(run)).run, run);
+    }
+  }
 });

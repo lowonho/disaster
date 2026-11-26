@@ -7,7 +7,8 @@
     return node;
   }
   function rollSummary(roll) {
-    return (roll.passed ? "상세 경로 확인" : "가까운 표지만 확인") + " · 눈 " + roll.face + " · 목표 " + roll.target + " 이상";
+    const result = roll.kind === "rescue" ? (roll.passed ? "구조대 합류" : "구조대 접근 지연") : (roll.passed ? "상세 경로 확인" : "가까운 표지만 확인");
+    return result + " · 눈 " + roll.face + " · 목표 " + roll.target + " 이상";
   }
   function button(text, kind, callback, iconName) {
     const node = element("button", kind);

@@ -44,6 +44,7 @@
     scene.append(image, title);
     const hazard = selectField(form, "재난", "scenario", Object.entries(scenarios).map(([key, data]) => [key, data.short]));
     const place = selectField(form, "장소", "venue", Object.entries(maps.venues).map(([key, data]) => [key, data.name]));
+    const opening = selectField(form, "화재 시작 상황", "opening", [["evacuate", "피난계단으로 대피 가능"], ["stay", "다른 세대 화재 · 안내 방송"], ["blocked", "연기로 출구가 막힘"], ["auto", "무작위"]]);
     const modes = Object.entries(maps.venues).map(([key, data]) => [key, data.level]);
     const mode = selectField(form, "난이도", "difficulty", [...modes, ["custom", "커스텀"]]);
     const summary = element("p", "setup-summary");
@@ -83,6 +84,8 @@
     }
     function updateMap() {
       const map = maps.get(hazard.value, place.value);
+      opening.disabled = hazard.value !== "fire" || place.value !== "home";
+      opening.parentElement.hidden = opening.disabled;
       title.textContent = map.title;
       const shot = globalThis.DisasterScenes.at(map, "start");
       image.alt = shot.alt;
@@ -110,7 +113,7 @@
       event.preventDefault();
       const latest = storage.find(hazard.value, place.value);
       if (storage.revision(latest) !== seen) { updateSlot(true); return; }
-      begin(hazard.value, place.value, { layout: choices.layout.value, supplies: choices.supplies.value });
+      begin(hazard.value, place.value, { layout: choices.layout.value, supplies: choices.supplies.value }, opening.disabled ? "auto" : opening.value);
     });
     updateMap();
     showDialog("새 게임 설정", scene, form);

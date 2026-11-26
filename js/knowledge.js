@@ -31,6 +31,7 @@
     connect(state.known, from, to);
     if (to === "last") connect(state.known, "last", "safe");
   }
+  function revealRoute(state, from, to) { connect(state.known, from, to); }
   function canSurvey(state) {
     return !state.observed.includes(state.node) && (!state.known.signs.includes(state.node) || exits(state).some(to => !hasRoute(state, state.node, to)));
   }
@@ -39,5 +40,5 @@
     include(state.known.signs, state.node);
     if (detailed) for (const to of exits(state)) connect(state.known, state.node, to);
   }
-  globalThis.DisasterKnowledge = { initial, hasArea, hasRoute, exits, arrive, canSurvey, survey };
+  globalThis.DisasterKnowledge = { initial, hasArea, hasRoute, exits, arrive, revealRoute, canSurvey, survey };
 })();

@@ -1,4 +1,7 @@
 .choices-section { min-width: 0; }
+.mission-goal { display: flex; flex-wrap: wrap; gap: 3px 8px; align-items: center; margin-top: 12px; padding-top: 9px; border-top: 1px solid #556258; font-size: .85rem; line-height: 1.5; color: #f0f4e9; }
+.mission-goal i { width: 15px; height: 15px; color: #b8ceb8; }
+.mission-goal span { color: #c4d0c1; }
 .toolbar { justify-content: flex-start; gap: 16px 28px; }
 .venue-nav, .venue-tabs, .toolbar-tools { display: flex; align-items: center; }
 .venue-nav { gap: 12px; }

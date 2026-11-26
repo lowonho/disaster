@@ -9,15 +9,16 @@
   };
   function fireMode(s) {
     if (s.id !== "fire" || s.node !== "start") return "evacuate";
+    if (s.opening !== "auto") return s.opening;
     if (s.venue === "home") return ["stay", "blocked", "evacuate"][s.seed % 3];
     return s.seed % 4 === 0 ? "blocked" : "evacuate";
   }
-  function hasRefuge(s) { return s.id === "fire" && s.venue === "home" && s.seed % 6 === 1; }
+  function hasRefuge(s) { return s.id === "fire" && s.venue === "home" && Math.floor(s.seed / 3) % 2 === 0; }
   function valleyCut(s) { return s.id === "flood" && s.venue === "travel" && s.seed % 3 === 1; }
   function stranded(s) { return valleyCut(s) && s.node === "mid"; }
   function outdoors(s) { return rank[s.node] >= 2; } // Earthquake maps share outdoor assembly areas.
   function shaking(s) {
-    return s.status === "playing" && s.id === "quake" && (s.elapsed === 0 || s.elapsed === 3 + s.seed % 3);
+    return s.status === "playing" && s.node !== "safe" && s.id === "quake" && (s.elapsed === 0 || s.elapsed === 3 + s.seed % 3);
   }
   function hazardCost(s) {
     return s.id === "flood" ? Math.min(4, Math.floor(s.elapsed / 2)) : shaking(s) ? 4 : 0;
@@ -30,9 +31,32 @@
   }
   function statusLabel(s) {
     if (s.archived) return "이전 판 종료";
-    return { playing: "대응 중", escaped: "대피 완료", sheltered: "실내 대기", awaiting: "구조 대기" }[s.status];
+    if (s.status === "escaped") return "자력 대피 완료";
+    if (s.status === "rescued") return "구조 완료";
+    if (s.node === "safe") return "대피 지점 도착";
+    if (s.guidance === "escorted") return "구조대 동행 중";
+    if (s.guidance === "advised") return "피난로 확인";
+    if (s.guidance === "delayed") return "구조대 접근 지연";
+    return "대응 중";
+  }
+  function guidedExit(s) {
+    if (s.guidance !== "advised" && s.guidance !== "escorted") return null;
+    return { start: "b", b: "last", mid: "last", last: "safe" }[s.node] || null;
+  }
+  function routeBulletin(s) {
+    if (s.id === "flood") return "현장 통제팀이 전망대와 산장 들머리를 잇는 같은 둑의 상단 산길을 확인했습니다. 잠긴 다리는 계속 통제 중입니다.";
+    const path = { home: "현재 위치에서 현관과 복도를 거쳐 뒤쪽 피난계단까지", work: "4층 회의실에서 서쪽 피난계단까지", travel: "객실에서 세탁실 앞 통로를 거쳐 피난계단까지" }[s.venue];
+    return "소방대가 " + path + " 불과 연기가 없는 것을 확인하고 이 경로로 대피하라고 안내합니다. 다른 통로는 계속 통제 중입니다.";
+  }
+  function needsFireReport(s) {
+    return s.id === "fire" && s.node === "safe" && !s.reportAt && !s.guidance;
   }
   function barrier(s, to) {
+    const next = guidedExit(s);
+    if (next) {
+      if (to === next) return "";
+      return s.id === "flood" ? "물이 찬 길은 여전히 통제 중입니다." : "소방대가 확인한 피난로만 통행할 수 있습니다.";
+    }
     if (s.id === "fire" && fireMode(s) !== "evacuate") return "복도에 짙은 연기가 차 있습니다.";
     if (s.protection || stranded(s)) return "물이 불어 이어지는 길이 끊겼습니다.";
     if (shaking(s)) return "흔들림이 멎을 때까지 몸을 보호하세요.";
@@ -79,18 +103,26 @@
   }
   function reportStatus(s) {
     if (s.archived) return "이전 판 기록";
-    if (s.reportAt) return s.node === "safe" ? "화재 위치 전달 완료" : "고립 위치 전달 완료";
-    if (fireMode(s) === "stay") return "관리실이 신고함";
+    if (s.guidance === "escorted") return s.status === "rescued" ? "구조대 인계 완료" : "구조대 현장 합류";
+    if (s.reportAt) return s.reportAt === "safe/" ? "화재 위치 전달 완료" : "고립 위치 전달 완료";
+    if (fireMode(s) === "stay" || s.guidance === "advised") return "관리실이 신고함";
     if (["room", "refuge", "high"].includes(s.protection)) return "119에 위치 전달 필요";
-    return s.id === "fire" && s.node === "safe" ? "화재 신고 필요" : "고립 신고 없음";
+    return needsFireReport(s) ? "화재 신고 필요" : "고립 신고 없음";
   }
   function situation(s) {
     const map = maps.of(s);
     if (s.archived) return { title: "이전 판의 기록", text: "이전 규칙으로 종료한 기록입니다. 마지막 위치와 진행 턴을 보존했습니다." };
-    if (s.status === "escaped") return { title: "대피 지점 도착", text: map.success + " 이곳에서 인원을 확인하고 현장 안내를 따릅니다." };
-    if (s.status === "awaiting") return { title: "위치를 알리고 구조를 기다립니다", text: "현재 위치와 고립 인원을 전달했습니다. 안전한 자리에서 119의 안내를 기다리는 시점에 이번 훈련을 마칩니다." };
-    if (s.status === "sheltered") return { title: "집 안에서 상황을 확인합니다", text: "관리실 방송이 계속 나오고 있습니다. 아직 집 안으로 연기가 들어오지 않습니다. 대피 지시나 상황 변화에 주의하며 대기하는 시점에 훈련을 마칩니다." };
-    if (s.id === "fire" && s.node === "safe") return { title: "건물 밖에서 119에 알리세요", text: "집결지에서 확인하니 아직 화재를 신고한 사람이 없습니다. 휴대전화로 건물 이름과 연기를 본 층을 전하세요. 남은 인원을 확인하러 다시 들어가지 않습니다." };
+    if (s.status === "rescued") return { title: "구조대와 안전 지점에 도착했습니다", text: map.goal + "에서 담당자가 인원과 몸 상태를 확인하고 인계를 마쳤습니다." };
+    if (s.status === "escaped") return { title: "안전 지점에서 대피를 마쳤습니다", text: map.success + " 현장 담당자에게 도착을 알리고 몸 상태를 확인했습니다." };
+    if (needsFireReport(s)) return { title: "건물 밖에서 119에 알리세요", text: "집결지에서 확인하니 아직 화재를 신고한 사람이 없습니다. 안전한 곳에서 건물 이름과 연기를 본 층을 전하세요." };
+    if (s.node === "safe") return { title: "대피 지점에 도착했습니다", text: map.goal + "의 현장 담당자가 맞이합니다. 도착한 인원과 몸 상태를 알려 주세요." };
+    if (guidedExit(s)) {
+      const together = s.guidance === "escorted";
+      return { title: together ? "구조대원이 곁에 있습니다" : "대피 지시가 도착했습니다",
+        text: s.protection ? routeBulletin(s) : (together ? "구조대원과 함께 " : "통행이 확인된 길을 따라 ") + map.nodes[guidedExit(s)].place + " 방향으로 이동하세요." };
+    }
+    if (s.guidance === "delayed") return { title: "구조대가 아직 접근하지 못했습니다", text: "119는 현재 위치를 알고 있습니다. 보호받는 자리에 머무르며 현장팀에 통행 가능한 다른 길이 있는지 확인하세요." };
+    if (s.reportAt && s.protection) return { title: "119에 위치가 전달됐습니다", text: "현장팀이 확인한 다른 길을 문의하거나, 신고한 자리를 지키며 구조대가 접근할 수 있는지 기다릴 수 있습니다." };
     if (s.protection === "home") return { title: "집 안에는 연기가 없습니다", text: "현관문과 창문을 닫았습니다. 관리실이 이미 119에 신고했습니다. 안내 방송을 들으며 연기 유입과 대피 지시를 확인하세요." };
     if (s.protection === "refuge") return { title: "대피공간의 방화문을 닫았습니다", text: "휴대전화가 연결됩니다. 119에 아파트 동·층·호, 발코니 대피공간에 있다는 사실과 고립 인원을 전하세요." };
     if (s.protection === "room") return { title: "출구와 거리를 두었습니다", text: "안쪽 방의 문을 닫고 틈을 막았습니다. 휴대전화로 119에 건물·층·방 위치와 고립 인원을 알리세요." };
@@ -110,15 +142,24 @@
     if (s.venue === "home" && s.node === "b") return { title: "위층 계단참에 올랐습니다", text: "아래쪽에서 물소리가 들립니다. 창밖으로 언덕 위 학교가 보이고, 이 높이에서 바로 이어지는 높은 쪽 대피로가 열려 있습니다." };
     return { title: s.venue === "home" ? "반지하로 물이 들어옵니다" : "역사에 물이 들어옵니다", text: s.venue === "home" ? "소지품을 두고 통행 가능한 계단을 따라 지상이나 높은 층으로 바로 이동하세요. 물이 쏟아지는 길은 피하세요." : "역무 방송이 상행 대피로를 안내합니다. 물이 밀려드는 통로를 피해 아직 통행 가능한 계단으로 지상에 올라가세요." };
   }
+  function finalGoal(s) {
+    if (s.archived) return currentPlace(s);
+    if (s.known.areas.includes("safe")) return maps.of(s).goal + " 도착 후 안전 확인";
+    return s.id === "flood" ? "높은 곳의 대피처에 도착해 안전 확인" : "건물 밖 집결지에 도착해 안전 확인";
+  }
   function objective(s) {
     if (s.status !== "playing") return currentPlace(s);
-    if (s.id === "fire" && s.node === "safe") return "안전한 곳에서 119에 화재 위치 전달";
-    if (s.reportAt && s.protection) return "신고한 자리에서 119 안내 대기";
+    if (needsFireReport(s)) return "안전한 곳에서 119에 화재 위치 전달";
+    if (s.node === "safe") return "현장 담당자와 인원·몸 상태 확인";
+    const next = guidedExit(s);
+    if (next) return (s.guidance === "escorted" ? "구조대와 이동 · " : "확인된 대피로 · ") + maps.of(s).nodes[next].place;
+    if (s.guidance === "delayed") return "현재 자리에서 대체 피난로 안내 확인";
+    if (s.reportAt && s.protection) return "피난로 안내를 요청하거나 구조대 접근 확인";
     if (s.protection === "home" || fireMode(s) === "stay") return "집 안에서 연기 유입과 대피 방송 확인";
     if (s.protection || stranded(s) || fireMode(s) === "blocked") return "안전한 곳을 확보하고 119에 위치 전달";
     if (shaking(s)) return "흔들림이 멎을 때까지 몸 보호";
     if (s.known.areas.includes("safe")) return maps.of(s).goal + " 대피";
     return { fire: "피난계단을 거쳐 건물 밖으로", flood: s.venue === "travel" ? "물길과 떨어진 높은 곳으로" : "높은 층이나 지상으로", quake: "건물에서 떨어진 넓은 곳으로" }[s.id];
   }
-  globalThis.DisasterResponse = { fireMode, stranded, shaking, hazardCost, currentPlace, statusLabel, barrier, coverText, shelterAction, reportKey, reportDetails, reportStatus, situation, objective };
+  globalThis.DisasterResponse = { fireMode, stranded, shaking, hazardCost, currentPlace, statusLabel, guidedExit, routeBulletin, needsFireReport, barrier, coverText, shelterAction, reportKey, reportDetails, reportStatus, situation, finalGoal, objective };
 })();

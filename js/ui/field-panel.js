@@ -40,7 +40,9 @@
     else {
       button.setAttribute("aria-keyshortcuts", String(index + 1));
       const line = element("span", "cost");
-      line.append(art.icon(action.check ? "die" : "clock"), document.createTextNode(action.check ? "3 이상 · 추가 단서" : action.turns ? "1턴" : "턴 소모 없음"));
+      let cost = action.turns ? "1턴" : "턴 소모 없음";
+      if (action.check) cost = action.check.target + (action.check.kind === "rescue" ? " 이상 · 구조대 접근 · 1턴" : " 이상 · 추가 단서");
+      line.append(art.icon(action.check ? "die" : "clock"), document.createTextNode(cost));
       meta.append(line);
     }
     button.append(header, body, meta);
@@ -61,12 +63,14 @@
     const hint = element("div", "field-hint");
     let visible;
     if (view === "travel") {
-      hint.append(document.createTextNode(game.currentPlace(state) + "에서 이어지는 길"));
+      const routes = options.filter(a => a.to);
+      const canMove = routes.some(a => !a.unavailable);
+      hint.append(document.createTextNode(canMove ? game.currentPlace(state) + "에서 이어지는 길" : state.node === "safe" ? "도착 지점에서 할 일" : "지금은 이동할 수 없습니다. 현재 위치에서 할 행동을 선택하세요."));
       const showMap = element("button", "map-jump", "지역 지도 보기");
       showMap.type = "button";
       showMap.addEventListener("click", () => { byId("route-heading").focus({ preventScroll: true }); byId("route-heading").scrollIntoView({ block: "start" }); });
       hint.append(showMap);
-      visible = options.filter(a => a.to);
+      visible = canMove ? routes : [...options.filter(a => !a.to && !a.unavailable), ...routes];
     } else {
       if (state.known.signs.includes(state.node) && !state.protection && !game.shaking(state)) hint.textContent = guidance.sign(map, state.node);
       visible = options.filter(a => !a.unavailable);
