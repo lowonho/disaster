@@ -1,7 +1,8 @@
 (() => {
   "use strict";
   const prefs = "disaster-escape.v1.";
-  const current = "disaster-escape.v4.run.";
+  const current = "disaster-escape.v5.run.";
+  const v4 = "disaster-escape.v4.run.";
   const previous = ["disaster-escape.v3.run.", "disaster-escape.v2.run.", "disaster-escape.v1.run."];
   const maps = globalThis.DisasterMaps;
   const unsaved = new Map();
@@ -21,7 +22,7 @@
   function venueFor(id, fallback = "home") {
     const last = read(prefs + "venue." + id);
     if (Object.hasOwn(maps.venues, last)) return last;
-    if (read(current + id + ".work") || previous.some(prefix => globalThis.DisasterGame.restore(id, read(prefix + id)))) return "work";
+    if (read(current + id + ".work") || read(v4 + id + ".work") || previous.some(prefix => globalThis.DisasterGame.restore(id, read(prefix + id)))) return "work";
     return fallback;
   }
   function settingsFor(id, venue) {
@@ -35,14 +36,16 @@
   }
   function displaySettings(id, venue) {
     const slot = id + "." + venue;
-    const saved = read(current + slot);
+    const saved = read(current + slot) || read(v4 + slot);
     return maps.validSettings(saved?.settings) ? saved.settings : settingsFor(id, venue);
   }
   function find(id, venue) {
     const slot = id + "." + venue;
     const game = globalThis.DisasterGame;
-    const present = game.restore(id, read(current + slot));
-    if (present && present.venue === venue) return present;
+    for (const prefix of [current, v4]) {
+      const present = game.restore(id, read(prefix + slot));
+      if (present && present.venue === venue) return present;
+    }
     if (venue === "work") {
       for (const prefix of previous) {
         const restored = game.restore(id, read(prefix + id));
@@ -77,7 +80,7 @@
         const candidates = data.journals?.[id];
         if (!Array.isArray(candidates)) continue;
         const game = globalThis.DisasterGame;
-        if (game.restore(id, read(current + id + ".work")) || previous.some(prefix => game.restore(id, read(prefix + id)))) continue;
+        if (find(id, "work")) continue;
         for (const saved of candidates.slice(0, 3)) {
           if (![1, 2, 3].includes(saved?.version)) continue;
           const restored = game.restore(id, saved);
@@ -97,7 +100,7 @@
       for (const id of Object.keys(globalThis.DisasterScenarios)) {
         for (const venue of Object.keys(maps.venues)) {
           const slot = id + "." + venue;
-          if (event.key !== null && event.key !== current + slot) continue;
+          if (event.key !== null && event.key !== current + slot && event.key !== v4 + slot && !(venue === "work" && previous.some(prefix => prefix + id === event.key))) continue;
           refreshRun(id, venue);
         }
       }

@@ -25,22 +25,9 @@
 .field-tabs button { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 4px; min-height: 41px; border: 1px solid transparent; border-radius: 4px; color: #4b594d; font-size: .93rem; font-weight: 680; white-space: nowrap; background: transparent; }
 .field-tabs button:hover { background: #f2f4eb; }
 .field-tabs button[aria-pressed=true] { color: #fffdf4; background: #304638; border-color: #2c4135; }
-.field-tabs small { font: 650 .72rem/1.5 var(--mono); padding-inline: 4px; border-radius: 3px; background: #253d2d12; }
-.field-tabs [aria-pressed=true] small { background: #ffffff21; }
 .field-tabs i { width: 17px; height: 17px; }
-.stock-summary, .field-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 35px; margin: 7px 0; color: #526054; font-size: .82rem; line-height: 1.5; }
-.stock-summary strong { margin-right: 4px; font-weight: 700; color: #415044; }
+.field-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 35px; margin: 7px 0; color: #526054; font-size: .82rem; line-height: 1.5; }
 .map-jump { display: none; }
-.supply-tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid #ced6c7; border-radius: 4px; background: #f8f9ef; color: #405846; font-size: .78rem; font-weight: 650; line-height: 1.4; }
-.supply-tag i { width: 14px; height: 14px; }
-.bag-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-top: 10px; }
-.bag-slot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; min-height: 42px; padding: 3px 6px; border-radius: 4px; border: 1px solid #c4cebe; background: var(--paper); }
-.bag-slot.empty { justify-content: center; color: #687467; border-style: dashed; background: #ffffff35; font-size: .76rem; }
-.bag-slot .supply-tag { padding: 0; border: 0; background: none; }
-.drop-item { background: none; border: 0; font-size: .74rem; padding: 6px 3px; text-decoration: underline; text-underline-offset: 2px; color: #616c61; }
-.bag-grid + .field-hint { min-height: 0; margin: 8px 0 10px; }
-.ingredient-source { color: #535e50; font-size: .77rem; line-height: 1.45; }
-.recipe-parts { color: #3e5c48; margin-top: 3px; font-size: .8rem; font-weight: 700; }
 .action:disabled .action-body { opacity: .85; }
 .action:only-child { display: grid; min-height: 80px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; }
 .action:only-child .action-head { margin: 0; }
@@ -83,11 +70,8 @@
   .toolbar-tools #restart span { display: none; }
   .toolbar-tools .toolbar-button { min-width: 36px; justify-content: center; }
   .field-tabs button { gap: 4px; font-size: .85rem; }
-  .field-tabs small { font-size: .67rem; }
   .field-tabs i { width: 15px; height: 15px; }
-  .stock-summary, .field-hint { min-height: 25px; }
-  .bag-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .drop-item { min-height: 36px; padding-inline: 6px; }
+  .field-hint { min-height: 25px; }
   .action:only-child { min-height: 75px; gap: 8px; }
   .map-detail { padding: 10px 14px; }
   .map-move { min-height: 42px; }
@@ -98,3 +82,17 @@
   .field-tabs button { gap: 3px; }
   .field-tabs i { display: none; }
 }
+
+.situation-facts { display: grid; gap: 8px; margin: 13px 0; }
+.situation-facts div { display: grid; grid-template-columns: 5em minmax(0, 1fr); align-items: baseline; column-gap: 10px; }
+.situation-facts dt { color: #b8c9bb; font-size: .81rem; }
+.situation-facts dd { margin: 0; font-size: .90rem; font-weight: 600; line-height: 1.5; }
+.response-guide { margin-block: 10px; padding: 15px 17px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+.response-guide h3 { margin: 0 0 8px; font-size: 1rem; }
+.response-guide .help-rules { margin-block: 8px 13px; }
+.actions:not(:empty) { margin-top: 8px; }
+
+.report-fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 14px; padding: 14px; margin: 12px 0; background: #eef1e8; border-radius: 5px; line-height: 1.5; }
+.report-fields dt { font-size: .86rem; font-weight: 700; color: #455b4b; }
+.report-fields dd { font-size: .94rem; margin: 0; }
+.outcome-stats strong { overflow-wrap: anywhere; }

@@ -1,20 +1,21 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 require("../js/data/regions.js");
-require("../js/data/supplies.js");
+require("../js/legacy/supplies-v4.js");
 require("../js/data/maps.js");
-require("../js/knowledge.js");
+require("../js/legacy/maps-v4.js");
+require("../js/legacy/knowledge-v4.js");
 require("../js/legacy/scenarios-v2.js");
 require("../js/legacy/engine-v2.js");
-require("../js/engine.js");
+require("../js/legacy/field-v4.js");
 
-const game = globalThis.DisasterGame, maps = globalThis.DisasterMaps, knowledge = globalThis.DisasterKnowledge;
+const game = globalThis.DisasterFieldV4, maps = globalThis.DisasterMapsV4, knowledge = globalThis.DisasterKnowledgeV4;
 const ids = Object.keys(globalThis.DisasterScenarios), venues = Object.keys(maps.venues);
 const noRoll = () => { throw Error("unexpected die roll"); };
 const take = (s, id) => assert(game.advance(s, id, () => 0.99), s.id + "/" + s.venue + " at " + s.node + " doing " + id);
 const travel = s => game.choices(s).filter(a => a.section === "travel");
 
-test("each disaster has three physical maps with full, fragmentary and unknown starting geography", () => {
+test("v4 save replay · each disaster has three physical maps with full, fragmentary and unknown starting geography", () => {
   for (const id of ids) {
     const [home, work, trip] = venues.map(venue => game.newRun(id, 17, venue));
     assert.equal(new Set([home, work, trip].map(s => maps.of(s).nodes.start.place)).size, 3);
@@ -31,7 +32,7 @@ test("each disaster has three physical maps with full, fragmentary and unknown s
   }
 });
 
-test("walking discovers the travelled connection; surveying records local supplies and neighbouring routes once", () => {
+test("v4 save replay · walking discovers the travelled connection; surveying records local supplies and neighbouring routes once", () => {
   const s = game.newRun("fire", 42, "travel");
   assert(game.advance(s, "move:b", noRoll));
   assert.deepEqual(s.known.areas, ["start", "b"]);
@@ -53,7 +54,7 @@ test("walking discovers the travelled connection; surveying records local suppli
   assert(knowledge.hasRoute(s, "last", "safe"));
 });
 
-test("map and supply settings combine independently and stay local to a run", () => {
+test("v4 save replay · map and supply settings combine independently and stay local to a run", () => {
   for (const layout of ["full", "partial", "none"]) for (const supplies of ["full", "partial", "none"]) {
     const s = game.newRun("fire", 7, "travel", { layout, supplies });
     assert.equal(s.known.areas.length, { full: 6, partial: 3, none: 1 }[layout]);
@@ -70,7 +71,7 @@ test("map and supply settings combine independently and stay local to a run", ()
   }
 });
 
-test("v3 replays in the original workplace with the map it showed and its recorded roll", t => {
+test("v4 save replay · v3 replays in the original workplace with the map it showed and its recorded roll", t => {
   t.mock.method(Math, "random", noRoll);
   const previous = { version: 3, seed: 19, legacy: null, steps: ["move:a", { id: "search", face: 1 }, "search"] };
   const run = game.restore("fire", previous);
@@ -94,7 +95,7 @@ function find(s, item) {
   while (!s.bag.includes(item)) act(s, "search");
 }
 
-test("all nine maps support both evacuation routes under either closure schedule", () => {
+test("v4 save replay · all nine maps support both evacuation routes under either closure schedule", () => {
   for (const id of ids) for (const venue of venues) for (const seed of [0, 1, 0xfffffffe, 0xffffffff]) {
     const radio = game.newRun(id, seed, venue);
     if (venue === "travel") act(radio, "survey");

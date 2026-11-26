@@ -4,7 +4,7 @@
   const maps = globalThis.DisasterMaps, storage = globalThis.DisasterStorage;
   const labels = {
     layout: { full: "전체 지도", partial: "통로 하나와 랜드마크", none: "현재 위치만" },
-    supplies: { full: "확인한 지역의 물자 전체", partial: "물자 단서 한 곳", none: "물자 단서 없음" }
+    supplies: { full: "확인한 지역의 대피 표지", partial: "표지 단서 한 곳", none: "표지 단서 없음" }
   };
   function summary(settings) { return labels.layout[settings.layout] + " · " + labels.supplies[settings.supplies]; }
   function preset(settings) {
@@ -13,7 +13,7 @@
   function level(settings) { return maps.venues[preset(settings)]?.level || "커스텀"; }
   function addFields(parent, settings) {
     const controls = {};
-    for (const [key, name] of [["layout", "시작 지도"], ["supplies", "시작 물자 단서"]]) {
+    for (const [key, name] of [["layout", "시작 지도"], ["supplies", "시작 표지 단서"]]) {
       controls[key] = selectField(parent, name, key, Object.entries(labels[key]));
       controls[key].value = settings[key];
     }

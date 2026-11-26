@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+  // Used only when replaying saves written before version 5.
   const items = {
     battery: { name: "건전지", icon: "battery", info: "무전기와 손전등에 함께 쓰는 재료" },
     radioBody: { name: "무전기 본체", icon: "radio", info: "건전지를 넣으면 구조대와 교신할 수 있다." },

@@ -1,276 +1,146 @@
 (() => {
   "use strict";
-  const scenarios = globalThis.DisasterScenarios;
   const maps = globalThis.DisasterMaps, knowledge = globalThis.DisasterKnowledge;
-  const { items, recipes, capacity } = globalThis.DisasterSupplies;
-  const clamp = n => Math.max(0, Math.min(100, n));
+  const response = globalThis.DisasterResponse, guidance = globalThis.DisasterGuidance;
   const maxSeed = 0x100000000;
-  const originalSettings = { layout: "full", supplies: "full" };
 
   function newRun(id, seed = Math.floor(Math.random() * maxSeed), venue = "work", settings = maps.venues[venue].settings) {
-    const scenario = maps.get(id, venue);
-    let sequence = seed;
-    const stock = {};
-    for (const [key, area] of Object.entries(scenario.nodes)) {
-      if (!area.stock) continue;
-      const pile = area.stock.slice();
-      for (let i = pile.length - 1; i > 0; i--) {
-        sequence = (Math.imul(sequence, 1664525) + 1013904223) >>> 0;
-        const j = Math.floor(sequence / maxSeed * (i + 1));
-        [pile[i], pile[j]] = [pile[j], pile[i]];
-      }
-      stock[key] = pile;
-    }
-    return {
-      id, seed, venue, settings: { ...settings }, known: knowledge.initial(scenario, settings),
-      node: "start", elapsed: 0, hp: 100, exposure: scenario.initialExposure, status: "playing",
-      visited: ["start"], bag: [], stock, clues: {}, steps: [], legacy: null,
-      log: [{ turn: 0, title: "대피 시작", text: scenario.opening, kind: "start" }]
-    };
+    const map = maps.get(id, venue);
+    return { id, seed, venue, settings: { layout: settings.layout, supplies: settings.supplies },
+      node: "start", status: "playing", elapsed: 0, visited: ["start"], observed: [], known: knowledge.initial(map, settings),
+      protection: "", reportAt: "", previous: null, archived: false, steps: [],
+      log: [{ turn: 0, title: "상황 발생", text: map.opening, kind: "start" }] };
   }
+  function action(id, title, description, icon, turns = 1) { return { id, title, description, icon, turns }; }
 
-  function closures(state) {
-    const scenario = maps.of(state);
-    return [[state.seed % 2 === 0 ? "a" : "b", scenario.firstClose], ["start", scenario.secondClose]];
+  function route(s, to) {
+    const map = maps.of(s), final = to === "safe";
+    const known = knowledge.hasRoute(s, s.node, to);
+    const landmarks = { a: "왼쪽 통로", b: "오른쪽 통로", mid: "안내 표지가 보이는 길", last: "출구 쪽 통로", start: "지나온 길" };
+    if (s.id === "flood" && s.venue === "travel") Object.assign(landmarks, { a: "안내판 옆 산길", b: "정자 옆 오르막", mid: "전망 난간 쪽 산길", last: "산장 표지가 보이는 길" });
+    const label = known || final ? map.nodes[to].place : landmarks[to];
+    const unavailable = response.barrier(s, to);
+    let description;
+    if (unavailable) description = unavailable;
+    else if (final) description = { fire: "밖에서 인원을 확인하고 남은 사람이 있으면 소방대에 알립니다.",
+      flood: "물이 고인 곳을 피해 지정된 높은 대피 지점에 합류합니다.", quake: "건물과 담장에서 떨어진 넓은 공간에 모입니다." }[s.id];
+    else if (s.id === "fire" && s.venue === "home" && s.node === "mid") description = "건물에서 떨어진 열린 보행로를 따라 집결지 쪽으로 갑니다.";
+    else if (s.id === "fire") description = s.node === "start" ? "주변에 불을 알리고 문을 닫은 뒤 연기 없는 피난로로 낮게 이동합니다." : "유도등이 보이고 통로에 연기가 없습니다. 안내된 피난로를 따라갑니다.";
+    else if (s.id === "quake") description = ["mid", "last"].includes(s.node) ? "머리를 보호하며 건물에서 멀어지는 쪽으로 갑니다." : "흔들림이 멎었습니다. 머리를 보호하며 막히지 않은 지상 방향 피난로를 이용합니다.";
+    else description = s.venue === "travel" ? "물길을 건너지 않고 같은 둑의 높은 길을 따라갑니다." : "물이 차지 않은 높은 쪽 대피로로 바로 이동합니다.";
+    return { ...action(final ? "escape" : "move:" + to, label + (final ? " 대피" : " 방향"), description, final ? "flag" : "walk"),
+      section: "travel", to, unavailable };
   }
-
-  function turnsToClose(state, area) {
-    const deadline = closures(state).find(([key]) => key === area);
-    return deadline ? Math.max(0, deadline[1] - state.elapsed) : Infinity;
-  }
-  function announcedClose(state, area) {
-    const remaining = turnsToClose(state, area);
-    if (!remaining || state.settings.layout === "full") return remaining;
-    const next = closures(state).find(([, at]) => at > state.elapsed);
-    return next?.[0] === area && knowledge.hasArea(state, area) ? remaining : Infinity;
-  }
-
-  function shaking(state) {
-    return state.status === "playing" && state.id === "quake" && state.elapsed % 4 === 0;
-  }
-
-  function hazardCost(state) {
-    if (state.id === "flood") return Math.min(4, Math.floor(state.elapsed / 2));
-    if (state.id === "fire" && state.elapsed >= maps.of(state).firstClose) return 2;
-    return 0;
-  }
-
-  function notice(state) {
-    if (state.status !== "playing") return { icon: "flag", text: "시뮬레이션 종료" };
-    const scenario = maps.of(state);
-    const next = closures(state).find(([, at]) => at > state.elapsed);
-    const text = [];
-    if (state.id === "quake") text.push(shaking(state) ? "진동 중 · 몸을 보호할 차례" : (4 - state.elapsed % 4) + "턴 뒤 여진");
-    if (turnsToClose(state, state.node) === 0) text.push("현재 지역 통제 · 이동 필요");
-    if (next) text.push(knowledge.hasArea(state, next[0]) ? scenario.nodes[next[0]].map + " " + (next[1] - state.elapsed) + "턴 뒤 통제" : "통제 예고 · 위치 미확인");
-    else if (!text.length) text.push("통제 지역 2곳");
-    if (hazardCost(state)) text.push("추가 노출 +" + hazardCost(state));
-    return { icon: shaking(state) ? "quake" : "clock", text: text.join(" · ") };
-  }
-
-  function situation(state) {
-    const scenario = maps.of(state), area = scenario.nodes[state.node];
-    if (state.status === "escaped") return { title: "탈출 성공", text: scenario.success };
-    if (state.status === "exhausted") return { title: "체력이 바닥났다", text: area.place + "에서 대피가 중단됐다." };
-    if (state.status === "exposed") return { title: "위험 노출 한계 도달", text: scenario.loss };
-    if (shaking(state)) return { title: state.elapsed ? "여진이 시작됐다" : "발밑이 크게 흔들린다", text: "이번 턴은 현재 자리에서 몸을 보호한다. 진동이 멎으면 다시 움직일 수 있다." };
-    if (turnsToClose(state, state.node) === 0) return { title: "이 지역이 통제됐다", text: area.place + "의 탐색이 끝났다. 지역 이동에서 연결된 다른 곳을 골라 빠져나가자." };
-    if (scenario.sight && (state.settings.layout !== "full" || state.settings.supplies !== "full")) {
-      return { title: area.place, text: scenario.sight[state.node] };
-    }
-    return area;
-  }
-
-  function choices(state) {
-    if (state.status !== "playing") return [];
-    const scenario = maps.of(state), area = scenario.nodes[state.node];
-    const { bag } = state, pile = state.stock[state.node];
-    const closed = turnsToClose(state, state.node) === 0;
-    const tremor = shaking(state);
-    const interruption = tremor ? "진동 중" : closed ? "지역 통제" : "";
-    const lamp = bag.includes("lamp");
-    const actions = [];
-    function add(id, section, title, description, icon, hp, exposure, options = {}) {
-      const turns = options.turns ?? 1;
-      actions.push({ id, section, title, description, icon, hp: Math.min(hp, 100 - state.hp),
-        exposure: exposure + (turns ? hazardCost(state) : 0), turns, ...options });
-    }
-    if (tremor) add("cover", "field", "몸 보호하기", "진동이 잦아들 때까지 현재 자리에서 몸을 보호한다.", "shield", 0, 2);
-    add("search", "field", "이 지역 탐색", lamp ? "손전등으로 남은 물자 하나를 확실히 찾는다." : state.clues[state.node]
-      ? "이곳에 남은 단서로 물자 하나를 확실히 찾는다." : "물자 하나를 찾는다. 실패하면 다음 탐색에 쓸 단서를 얻는다.",
-      "eye", 0, area.searchTarget === 3 ? 5 : 4, {
-        unavailable: interruption || (!pile.length ? "물자 소진" : bag.length >= capacity ? "가방 가득" : ""),
-        check: lamp || state.clues[state.node] ? null : { target: area.searchTarget, miss: "물자를 바로 찾지 못했다. 이 지역에 단서가 남아 다음 탐색은 확정이다." }
-      });
-    if (knowledge.canSurvey(state)) {
-      add("survey", "field", "주변 살피기", "표지와 보관함을 살펴 연결된 통로와 이곳의 물자를 지도에 기록한다.", "route", 0, 2,
-        { unavailable: interruption });
-    }
-    const exits = knowledge.exits(state);
-    if (exits.some(to => !knowledge.hasRoute(state, state.node, to))) {
-      exits.sort((a, b) => scenario.points[a][0] - scenario.points[b][0] || scenario.points[a][1] - scenario.points[b][1]);
-    }
-    const directions = { 2: ["왼편 통로", "오른편 통로"], 3: ["왼편 통로", "가운데 통로", "오른편 통로"] };
-    for (const [index, to] of exits.entries()) {
-      const destination = scenario.nodes[to];
-      const shortcut = [to, state.node].includes(scenario.express) && [to, state.node].includes("last");
-      const remaining = turnsToClose(state, to);
-      const mapped = knowledge.hasRoute(state, state.node, to);
-      const pileAtDestination = knowledge.stock(state, to);
-      const stockNames = pileAtDestination ? [...new Set(pileAtDestination)].map(item => items[item].name).join(", ") || "물자 소진" : "물자 미확인";
-      const description = mapped ? (shortcut ? "직통 경로" : "연결 경로") + " · " + stockNames : "행선지 미확인 · 도착하면 지도에 기록한다.";
-      const passage = directions[exits.length]?.[index] || (index + 1) + "번 통로";
-      add("move:" + to, "travel", mapped ? destination.place : passage, description,
-        mapped && shortcut ? "stairs" : "walk", shortcut ? -18 : -10, shortcut ? 6 : 5, {
-          to, unavailable: tremor ? "진동 중" : remaining === 0 ? "지역 통제" : "",
-          warning: mapped && announcedClose(state, to) === 1 ? "도착하면 즉시 통제" : ""
-        });
-    }
-    if (state.node === "last") {
-      add("escape", "field", "도보 탈출", lamp ? "손전등으로 유도 표지를 확인하고 " + scenario.goal + "까지 이동한다."
-        : "유도 표지를 찾아 " + scenario.goal + "까지 이동한다. 손전등이 있으면 확정이다.", "flag", lamp ? -8 : -22, lamp ? 6 : scenario.walkRisk,
-        { to: "safe", unavailable: interruption, check: lamp ? null : { target: scenario.walkTarget, miss: "표지를 놓쳐 출구에 머물렀다. 도보 탈출을 다시 시도할 수 있다." } });
-    }
-    if (state.node === "mid" || state.node === "last") {
-      add("rescue", "field", "무전 구조 요청", knowledge.hasArea(state, "safe") ? "현재 위치를 전하고 구조대와 함께 " + scenario.goal + "까지 간다." : "현재 위치를 전하고 구조대의 안내를 받아 대피한다.", "radio", -2, 3,
-        { to: "safe", unavailable: interruption || (bag.includes("radio") ? "" : "구조 무전기 필요") });
-    }
-    for (const [product, ingredients] of Object.entries(recipes)) {
-      const missing = ingredients.filter(part => !bag.includes(part));
-      add("craft:" + product, "bag", items[product].name + " 조립", items[product].info, items[product].icon, 0, 2,
-        { product, ingredients, missing, unavailable: interruption || (missing.length ? "재료 부족" : "") });
-    }
-    if (bag.includes("ration")) {
-      add("eat", "bag", "비상식량 먹기", "식량 한 개를 먹고 체력을 최대 28 회복한다.", "ration", 28, 2,
-        { unavailable: interruption || (state.hp === 100 ? "체력 가득" : "") });
-    }
-    for (const item of new Set(bag)) {
-      add("drop:" + item, "bag", items[item].name + " 내려두기", "이 지역의 물자로 돌아간다.", items[item].icon, 0, 0,
-        { item, turns: 0, unavailable: interruption });
-    }
-    return actions;
-  }
-
-  function eventAfter(state) {
-    if (state.status !== "playing") return "";
-    const scenario = maps.of(state);
-    const messages = closures(state).filter(([, at]) => at === state.elapsed)
-      .map(([key]) => knowledge.hasArea(state, key) ? scenario.nodes[key].place + " 통제 시작." : "아직 확인하지 못한 구역에서 통제가 시작됐다.");
-    if (shaking(state)) messages.push("여진이 시작됐다.");
-    return messages.join(" ");
-  }
-
-  function apply(state, action, face) {
-    const scenario = maps.of(state), bag = state.bag, pile = state.stock[state.node];
-    const hpBefore = state.hp, riskBefore = state.exposure;
-    const roll = face === null ? null : { face, target: action.check.target, passed: face >= action.check.target };
-    const passed = !roll || roll.passed;
-    state.steps.push(roll ? { id: action.id, face } : action.id);
-    state.elapsed += action.turns;
-    if (passed) state.hp = clamp(state.hp + action.hp);
-    state.exposure = clamp(state.exposure + action.exposure);
-    let text, kind = passed ? "action" : "blocked";
-    if (state.hp === 0 || state.exposure >= 100) {
-      state.status = state.hp === 0 ? "exhausted" : "exposed";
-      kind = "loss";
-      text = state.hp === 0 ? "남은 체력을 모두 써서 이동이 멈췄다." : scenario.loss;
-    } else if (!passed) {
-      text = action.check.miss;
-      if (action.id === "search") state.clues[state.node] = true;
-    } else if (action.id === "search") {
-      const found = pile.shift();
-      bag.push(found);
-      delete state.clues[state.node];
-      text = items[found].name + " 획득. 가방 " + bag.length + "/" + capacity + "칸.";
-      if (!pile.length && !state.known.caches.includes(state.node)) state.known.caches.push(state.node);
-    } else if (action.id === "survey") {
-      text = knowledge.survey(state);
-    } else if (action.product) {
-      for (const part of recipes[action.product]) bag.splice(bag.indexOf(part), 1);
-      bag.push(action.product);
-      text = items[action.product].name + " 조립 완료. " + items[action.product].info;
-    } else if (action.item) {
-      bag.splice(bag.indexOf(action.item), 1);
-      pile.unshift(action.item);
-      text = items[action.item].name + " 한 개를 이곳에 두었다.";
-    } else if (action.id === "eat") {
-      bag.splice(bag.indexOf("ration"), 1);
-      text = "비상식량을 먹어 체력을 " + (state.hp - hpBefore) + " 회복했다.";
-    } else if (action.to) {
-      knowledge.arrive(state, state.node, action.to, action.id === "rescue");
-      state.node = action.to;
-      state.visited.push(action.to);
-      text = scenario.nodes[action.to].place + " 도착.";
-      if (action.to === "safe") {
-        state.status = "escaped";
-        kind = "win";
-        text = (action.id === "rescue" ? "무전으로 구조대와 합류했다. " : "유도 표지를 따라 걸었다. ") + text;
-      }
+  function choices(s) {
+    if (s.status !== "playing") return [];
+    if (s.id === "fire" && s.node === "safe") return [action("report", "119에 화재 위치 알리기", "안전한 집결지에서 건물과 연기를 본 층을 전달합니다.", "phone", 0)];
+    const exits = knowledge.exits(s);
+    if (s.node === "last") exits.push("safe");
+    const routes = exits.map(to => route(s, to));
+    const options = [];
+    if (response.shaking(s)) {
+      const [title, description] = response.coverText(s);
+      options.push(action("cover", title, description, "shield"));
+    } else if (s.protection === "home") {
+      options.push(action("monitor", "방송과 연기 유입 계속 확인", "관리실의 신고를 확인했습니다. 닫힌 문 안쪽에서 대피 지시나 상황 변화에 귀를 기울입니다.", "voice"));
+    } else if (s.protection) {
+      if (s.reportAt !== response.reportKey(s)) options.push(action("report", "119에 고립 위치 알리기", "휴대전화로 현재 위치와 상황, 인원을 전달하는 신고 연습입니다.", "phone", 0));
+      else options.push(action("wait", "안전한 자리에서 구조 안내 기다리기", "신고한 위치에 머무르며 통화와 현장 지시에 따릅니다.", "shield"));
     } else {
-      text = "몸을 보호하며 진동이 잦아들기를 기다렸다.";
+      const shelter = response.shelterAction(s);
+      if (shelter) options.push(action("protect", shelter[1], shelter[2], "shield"));
+      else if (knowledge.canSurvey(s)) {
+        const unknown = exits.some(to => !knowledge.hasRoute(s, s.node, to));
+        const survey = action("survey", "눈앞의 대피 표지 읽기", unknown ? "주사위가 3 이상이면 이어지는 다른 길까지 지도에 표시합니다." : "현재 위치에서 보이는 대피 표지를 확인합니다.", "eye", 0);
+        if (unknown) survey.check = { target: 3 };
+        options.push(survey);
+      }
     }
-    const entry = { turn: state.elapsed, title: action.title, text, kind, hp: state.hp - hpBefore,
-      exposure: state.exposure - riskBefore, event: action.turns ? eventAfter(state) : "" };
+    return [...options.filter(o => o.id !== "survey"), ...routes, ...options.filter(o => o.id === "survey")];
+  }
+
+  function available(s, id) { return choices(s).find(o => o.id === id && !o.unavailable); }
+  function apply(s, act, face) {
+    const previousSignal = response.shaking(s);
+    const shelter = act.id === "protect" ? response.shelterAction(s) : null;
+    s.elapsed += act.turns;
+    let text = act.description, kind = "action", roll;
+    if (act.id === "survey") {
+      if (act.check) roll = { face, target: act.check.target, passed: face >= act.check.target };
+      knowledge.survey(s, Boolean(roll?.passed));
+      text = guidance.sign(maps.of(s), s.node);
+      if (roll) text += roll.passed ? " 이어지는 길도 지도에 기록했습니다." : " 가까운 표지만 읽었습니다. 눈앞의 대피로는 이용할 수 있습니다.";
+    } else if (act.to) {
+      knowledge.arrive(s, s.node, act.to);
+      s.node = act.to;
+      s.visited.push(s.node);
+      text = response.currentPlace(s) + "에 도착했습니다.";
+      if (act.id === "escape" && s.id !== "fire") { s.status = "escaped"; kind = "win"; }
+    } else if (act.id === "cover") text = "몸을 보호한 채 기다렸습니다. 지금은 흔들림이 잦아들었습니다.";
+    else if (act.id === "protect") {
+      s.protection = shelter[0];
+      text = { home: "현관문과 창문을 닫고 관리실 방송을 들었습니다.", refuge: "발코니 대피공간에 들어가 방화문을 닫았습니다.", room: "불에서 먼 방으로 옮겨 문을 닫고 문틈을 막았습니다.", high: "물길과 급경사지에서 떨어진 높은 쉼터에 자리를 잡았습니다." }[s.protection];
+    } else if (act.id === "report") {
+      const details = response.reportDetails(s);
+      s.reportAt = response.reportKey(s);
+      text = "119 신고 연습에서 위치와 상황을 전달했습니다. " + details.where + " · " + details.who;
+      if (s.node === "safe") { s.status = "escaped"; kind = "win"; }
+    } else if (act.id === "monitor" || act.id === "wait") {
+      s.status = act.id === "monitor" ? "sheltered" : "awaiting";
+      kind = "win";
+      text = response.situation(s).text;
+    }
+    const entry = { turn: s.elapsed, title: act.title, text, kind,
+      event: !previousSignal && response.shaking(s) ? "다시 흔들립니다. 현재 위치에서 몸을 보호하세요." : "" };
     if (roll) entry.roll = roll;
-    if (kind === "loss") entry.review = state.status === "exhausted"
-      ? "행동 전 체력 " + hpBefore + " · 필요한 체력 " + Math.abs(action.hp)
-      : "행동 전 노출 " + riskBefore + " · 행동 비용 +" + action.exposure;
-    state.log.push(entry);
+    s.steps.push(roll ? { id: act.id, face } : act.id);
+    s.log.push(entry);
   }
-
-  function available(state, id) {
-    return choices(state).find(action => action.id === id && !action.unavailable);
-  }
-
-  function advance(state, id, random = Math.random) {
-    const action = available(state, id);
-    if (!action) return false;
-    apply(state, action, action.check ? Math.floor(random() * 6) + 1 : null);
+  function advance(s, id, random = Math.random) {
+    const act = available(s, id);
+    if (!act) return false;
+    apply(s, act, act.check ? Math.floor(random() * 6) + 1 : null);
     return true;
   }
 
-  function fromLegacy(id, saved) {
-    const previous = globalThis.DisasterLegacyGame.restore(id, saved);
-    if (!previous) return null;
-    // Replay old journals under their original rules before continuing in the field.
-    const state = newRun(id, previous.open === "a" ? 41 : 82, "work", originalSettings);
-    for (const key of ["node", "elapsed", "hp", "exposure", "status", "visited", "log"]) state[key] = previous[key];
-    if (previous.reported) state.bag.push("radio");
-    state.legacy = globalThis.DisasterLegacyGame.snapshot(previous);
-    return state;
+  function migrate(id, saved) {
+    const old = globalThis.DisasterFieldV4.restore(id, saved);
+    if (!old) return null;
+    const s = newRun(id, old.seed, old.venue, old.settings);
+    s.previous = globalThis.DisasterFieldV4.snapshot(old);
+    s.node = old.node;
+    s.visited = old.visited.slice();
+    s.elapsed = old.elapsed;
+    s.status = old.status;
+    s.archived = old.status !== "playing";
+    s.known.areas = [...new Set([...old.known.areas, ...s.visited])];
+    s.known.routes = old.known.routes.slice();
+    for (let i = 1; i < s.visited.length; i++) {
+      const from = s.visited[i - 1], to = s.visited[i];
+      if (maps.of(s).ways.some(pair => pair.includes(from) && pair.includes(to)) || (from === "last" && to === "safe")) knowledge.arrive(s, from, to);
+    }
+    s.log = [{ turn: s.elapsed, title: "이전 기록 불러오기", kind: "history",
+      text: (s.archived ? "이전 판의 종료 기록" : "이전 판의 진행 위치와 확인한 지도") + "을 불러왔습니다." }];
+    return s;
   }
-
-  function snapshot(state) {
-    return { version: 4, id: state.id, venue: state.venue, settings: { ...state.settings }, seed: state.seed, legacy: state.legacy, steps: state.steps.slice() };
+  function snapshot(s) {
+    return { version: 5, id: s.id, seed: s.seed, venue: s.venue, settings: { ...s.settings }, previous: s.previous, steps: s.steps.slice() };
   }
-
   function restore(id, saved) {
-    if (!Object.hasOwn(scenarios, id) || !saved) return null;
-    if (saved.version === 1 || saved.version === 2) {
-      const old = fromLegacy(id, saved);
-      return old?.elapsed === 0 ? newRun(id, old.seed, "work") : old;
-    }
-    if (![3, 4].includes(saved.version) || !Number.isInteger(saved.seed) || saved.seed < 0 || saved.seed >= maxSeed
-      || !Array.isArray(saved.steps) || saved.steps.length > 256) return null;
-    let venue = saved.venue, settings = saved.settings;
-    if (saved.version === 3) {
-      venue = "work";
-      // A fresh autosave has no played turns. Started journals keep the information they showed.
-      settings = saved.steps.length || saved.legacy ? originalSettings : maps.venues.work.settings;
-    }
-    if (!Object.hasOwn(maps.venues, venue) || !maps.validSettings(settings) || (saved.version === 4 && id !== saved.id)) return null;
-    if (saved.legacy && (venue !== "work" || !maps.sameSettings(settings, originalSettings))) return null;
-    const state = saved.legacy ? fromLegacy(id, saved.legacy) : newRun(id, saved.seed, venue, settings);
-    if (!state || state.seed !== saved.seed) return null;
+    if (!Object.hasOwn(globalThis.DisasterScenarios, id) || !saved) return null;
+    if ([1, 2, 3, 4].includes(saved.version)) return migrate(id, saved);
+    if (saved.version !== 5 || saved.id !== id || !Object.hasOwn(maps.venues, saved.venue) || !maps.validSettings(saved.settings) ||
+      !Number.isInteger(saved.seed) || saved.seed < 0 || saved.seed >= maxSeed || !Array.isArray(saved.steps) || saved.steps.length > 256) return null;
+    if (saved.previous && saved.previous.version !== 4) return null;
+    const s = saved.previous ? migrate(id, saved.previous) : newRun(id, saved.seed, saved.venue, saved.settings);
+    if (!s || s.seed !== saved.seed || s.venue !== saved.venue || !maps.sameSettings(s.settings, saved.settings)) return null;
     for (const step of saved.steps) {
       const recorded = typeof step === "object" && step !== null;
-      const action = available(state, recorded ? step.id : step);
-      if (!action || Boolean(action.check) !== recorded) return null;
-      if (recorded && (!Number.isInteger(step.face) || step.face < 1 || step.face > 6)) return null;
-      apply(state, action, recorded ? step.face : null);
+      const act = available(s, recorded ? step.id : step);
+      if (!act || Boolean(act.check) !== recorded || (recorded && (!Number.isInteger(step.face) || step.face < 1 || step.face > 6))) return null;
+      apply(s, act, recorded ? step.face : null);
     }
-    return state;
+    return s;
   }
-
-  globalThis.DisasterGame = { newRun, choices, advance, snapshot, restore, notice, situation, turnsToClose, announcedClose, neighbors: knowledge.exits, shaking };
+  globalThis.DisasterGame = { ...response, newRun, choices, advance, snapshot, restore };
 })();

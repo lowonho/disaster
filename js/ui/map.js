@@ -1,9 +1,9 @@
 (() => {
   "use strict";
-  const { byId, element, signed } = globalThis.DisasterUI;
+  const { byId, element } = globalThis.DisasterUI;
   const game = globalThis.DisasterGame;
   const maps = globalThis.DisasterMaps, knowledge = globalThis.DisasterKnowledge;
-  const { items } = globalThis.DisasterSupplies;
+  function localRoutes(state) { return globalThis.DisasterGame.choices(state).filter(a => a.to); }
   function draw(state) {
     const canvas = byId("route-lines"), width = canvas.clientWidth, height = canvas.clientHeight;
     if (!width || !height) return;
@@ -19,11 +19,12 @@
       pen.fillRect(x * width / 100, y * height / 100, w * width / 100, h * height / 100);
       pen.strokeRect(x * width / 100, y * height / 100, w * width / 100, h * height / 100);
     }
-    const scenario = maps.of(state), points = scenario.points;
+    const scenario = maps.of(state), points = scenario.points, routes = localRoutes(state);
     for (const [from, to] of [...scenario.ways, ["last", "safe"]]) {
       if (!knowledge.hasRoute(state, from, to)) continue;
-      const closed = [from, to].some(key => game.turnsToClose(state, key) === 0);
       const adjacent = [from, to].includes(state.node);
+      const destination = from === state.node ? to : from;
+      const closed = adjacent && routes.some(a => a.to === destination && a.unavailable);
       pen.strokeStyle = closed ? "#aa887a" : adjacent ? "#4c725e" : "#8a9488";
       pen.lineWidth = adjacent ? 2.4 : 1.7;
       pen.setLineDash(closed || !adjacent ? [4, 4] : []);
@@ -39,17 +40,15 @@
     }
   }
 
-  function statusOf(state, key) {
-    const remaining = game.announcedClose(state, key);
-    if (remaining === 0) return "통제";
-    if (Number.isFinite(remaining)) return remaining + "턴 뒤 통제";
-    if (key === "safe") return "탈출 지점";
-    if (key === "mid" || key === "last") return "교신 가능";
-    return "개방";
+  function statusOf(state, key, routes) {
+    if (key === state.node) return "현재 위치";
+    if (routes.some(a => a.to === key && a.unavailable)) return "지금 진입 불가";
+    if (key === "safe") return "지정 대피 지점";
+    return state.visited.includes(key) ? "지나온 곳" : "지도에 표시됨";
   }
 
   function render(state, selected) {
-    const scenario = maps.of(state);
+    const scenario = maps.of(state), routes = localRoutes(state);
     if (!knowledge.hasArea(state, selected)) selected = state.node;
     const container = byId("map-points");
     for (const existing of Array.from(container.children)) {
@@ -69,39 +68,30 @@
       point.style.left = x + "%";
       point.style.top = y + "%";
       point.dataset.top = String(y < 45);
-      const remaining = game.announcedClose(state, key);
-      point.dataset.state = key === state.node ? "current" : remaining === 0 ? "closed" : remaining <= 2 ? "warning" : state.visited.includes(key) ? "visited" : "open";
+      const closed = routes.some(a => a.to === key && a.unavailable);
+      point.dataset.state = key === state.node ? "current" : closed ? "closed" : state.visited.includes(key) ? "visited" : "open";
       point.setAttribute("aria-pressed", String(key === selected));
-      point.setAttribute("aria-label", [scenario.nodes[key].place, key === state.node ? "현재 위치" : "", statusOf(state, key)].filter(Boolean).join(" · "));
+      point.setAttribute("aria-label", [scenario.nodes[key].place, statusOf(state, key, routes)].filter(Boolean).join(" · "));
       point.querySelector(".point-label").textContent = scenario.nodes[key].map;
     }
     const detail = byId("map-detail"), area = scenario.nodes[selected];
     const heading = element("div", "map-detail-head");
-    heading.append(element("strong", "", area.place), element("span", "", (selected === state.node ? "현재 위치 · " : "") + statusOf(state, selected)));
+    heading.append(element("strong", "", selected === state.node ? game.currentPlace(state) : area.place), element("span", "", statusOf(state, selected, routes)));
     detail.replaceChildren(heading);
-    const pile = knowledge.stock(state, selected);
-    const supply = pile ? "남은 물자 · " + ([...new Set(pile)].map(key => items[key].name).join(", ") || "소진") : "물자 위치 미확인";
-    detail.append(element("p", "", selected === "safe" ? "도보 탈출과 무전 구조의 도착 지점." : supply));
-    if (state.status === "playing" && selected === state.node) {
-      const hint = knowledge.canSurvey(state) ? "‘주변 살피기’로 통로와 이곳의 물자를 기록할 수 있습니다." : "지도에서 다른 지역을 눌러 경로를 확인하세요.";
-      detail.append(element("p", "map-via", hint));
-    }
+    if (state.known.signs.includes(selected) || selected === "safe") detail.append(element("p", "", globalThis.DisasterGuidance.sign(scenario, selected)));
     if (state.status === "playing" && selected !== state.node) {
-      const action = game.choices(state).find(option => option.id === (selected === "safe" ? "escape" : "move:" + selected));
+      const action = routes.find(option => option.to === selected);
       if (action && knowledge.hasRoute(state, state.node, selected)) {
         const move = element("button", "map-move");
         move.type = "button";
         move.dataset.action = action.id;
         move.disabled = Boolean(action.unavailable);
-        const target = action.check ? " · 주사위 " + action.check.target + "+" : "";
-        move.textContent = action.unavailable || ((selected === "safe" ? "도보 탈출" : "이곳으로 이동") + " · 1턴 · 체력 " + signed(action.hp) + " · 노출 " + signed(action.exposure) + target);
+        move.textContent = action.unavailable || action.title + " · 1턴";
         detail.append(move);
-        if (action.warning) detail.append(element("p", "map-warning", action.warning));
       } else {
-        const entrances = selected === "safe" ? ["last"] : scenario.ways.filter(pair => pair.includes(selected)).map(pair => pair.find(key => key !== selected));
-        const via = entrances.filter(key => knowledge.hasRoute(state, selected, key) && game.turnsToClose(state, key) > 0).map(key => scenario.nodes[key].map);
-        const hint = game.turnsToClose(state, selected) === 0 ? "통제되어 진입할 수 없다." : via.length ? "확인된 연결 지역 · " + via.join(", ") : "이곳까지 이어지는 길은 아직 미확인.";
-        detail.append(element("p", "map-via", hint));
+        const entrances = [...scenario.ways, ["last", "safe"]].filter(pair => pair.includes(selected)).map(pair => pair.find(key => key !== selected));
+        const via = entrances.filter(key => knowledge.hasRoute(state, selected, key)).map(key => scenario.nodes[key].map);
+        detail.append(element("p", "map-via", via.length ? "확인한 연결 지역 · " + via.join(", ") : "이어지는 길은 아직 확인하지 못했습니다."));
       }
     }
     draw(state);

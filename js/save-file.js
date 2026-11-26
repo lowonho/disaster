@@ -16,12 +16,12 @@
       throw new Error("파일 내용을 읽을 수 없습니다. 저장한 JSON 파일을 선택하세요.");
     }
     if (file?.format !== format) throw new Error("재난 시뮬레이터에서 저장한 파일을 선택하세요.");
-    if (file.version !== 1 || (file.run?.version > 4)) throw new Error("이 게임 버전에서 지원하지 않는 세이브 파일입니다.");
+    if (file.version !== 1 || (file.run?.version > 5)) throw new Error("이 게임 버전에서 지원하지 않는 세이브 파일입니다.");
     const saved = file.run;
-    if (saved?.version !== 4 || typeof saved.id !== "string" || typeof saved.venue !== "string" || !maps.validSettings(saved.settings)) {
+    if (![4, 5].includes(saved?.version) || typeof saved.id !== "string" || typeof saved.venue !== "string" || !maps.validSettings(saved.settings)) {
       throw new Error("세이브 파일의 맵 또는 난이도 정보를 확인할 수 없습니다.");
     }
-    // Vitals, inventory, map knowledge and roll results all come from the same replay.
+    // Rebuild each decision and observation from its versioned journal.
     const run = game.restore(saved.id, { ...saved, settings: { layout: saved.settings.layout, supplies: saved.settings.supplies } });
     if (!run) throw new Error("행동 기록이 손상되어 이 파일을 불러올 수 없습니다.");
     const next = file.nextSettings === undefined ? run.settings : file.nextSettings;

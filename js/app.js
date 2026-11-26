@@ -2,10 +2,10 @@
   "use strict";
   const scenarios = globalThis.DisasterScenarios;
   const game = globalThis.DisasterGame;
-  const maps = globalThis.DisasterMaps, knowledge = globalThis.DisasterKnowledge;
+  const maps = globalThis.DisasterMaps;
   const difficulty = globalThis.DisasterDifficulty;
   const art = globalThis.DisasterArt;
-  const { byId, element, signed, rollSummary, button: makeButton, progress } = globalThis.DisasterUI;
+  const { byId, element, rollSummary, button: makeButton, progress } = globalThis.DisasterUI;
   const storage = globalThis.DisasterStorage;
   const field = globalThis.DisasterField;
   const map = globalThis.DisasterMap;
@@ -60,48 +60,54 @@
     tone("action");
   }
 
-  function updateScenario(scenario) {
+  function updateScenario(scenario, shot, hazardCost) {
     document.body.dataset.scenario = scenario.id;
     document.body.dataset.venue = state.venue;
     document.querySelectorAll("[data-scenario-id]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.scenarioId === scenario.id));
     });
-    document.querySelectorAll("[data-art]").forEach(image => {
-      image.hidden = image.dataset.art !== scenario.id;
-      image.alt = image.hidden ? "" : scenario.alt;
-    });
     document.querySelectorAll("button[data-venue]").forEach(button => {
-      const selected = button.dataset.venue === state.venue;
+      const venue = button.dataset.venue;
+      const selected = venue === state.venue;
       button.setAttribute("aria-pressed", String(selected));
-      const settings = selected ? state.settings : storage.displaySettings(state.id, button.dataset.venue);
+      const settings = selected ? state.settings : storage.displaySettings(state.id, venue);
+      button.querySelector("span").textContent = maps.get(state.id, venue).venueLabel || maps.venues[venue].name;
       button.querySelector("small").textContent = difficulty.level(settings);
     });
-    byId("setting").textContent = scenario.setting;
     byId("scenario-title").textContent = scenario.title;
-    byId("alert-label").textContent = state.status === "playing" ? scenario.alert : state.status === "escaped" ? "대피 완료" : "대피 종료";
+    byId("scenario-title").title = scenario.setting;
+    byId("current-place").textContent = game.currentPlace(state);
+    const image = byId("scene-image");
+    if (image.getAttribute("src") !== shot.src) {
+      image.alt = shot.alt;
+      image.src = shot.src;
+    }
+    const weather = game.shaking(state) ? 0.8 : hazardCost / 4;
+    byId("scene-view").style.setProperty("--weather-strength", state.status === "playing" ? weather : 0);
+    const alert = shot.highWater ? "수위 상승" : scenario.alert;
+    byId("alert-label").textContent = state.status === "playing" ? alert : game.statusLabel(state);
     const badgeIcon = byId("alert-label").previousElementSibling;
-    badgeIcon.dataset.icon = state.status === "escaped" ? "check" : "alert";
+    badgeIcon.dataset.icon = state.status === "playing" ? "alert" : "check";
     art.paint(badgeIcon);
     const turn = state.elapsed + (state.status === "playing" ? 1 : 0);
     byId("turn-number").textContent = String(turn).padStart(2, "0");
     byId("turn-counter").setAttribute("aria-label", (state.status === "playing" ? "현재 " : "총 ") + turn + "턴");
-    byId("goal-label").textContent = state.status === "escaped" ? "도착 지점" : "탈출 목표";
-    byId("objective").textContent = state.status === "escaped" ? scenario.goal : knowledge.objective(state);
+    byId("goal-label").textContent = state.status === "playing" ? "현재 목표" : "마지막 위치";
+    byId("objective").textContent = game.objective(state);
     byId("stage-count").textContent = state.known.areas.length;
     byId("map-origin").textContent = "출발 정보 · " + difficulty.summary(state.settings);
   }
 
-  function updateBriefing(scenario, animateRoll) {
+  function updateBriefing(scenario, shot, animateRoll) {
     const scene = game.situation(state);
-    byId("scene-label").textContent = state.status === "playing" ? "현장 상황" : "대피 결과";
-    const place = byId("current-place");
-    place.textContent = scenario.nodes[state.node].place;
-    place.hidden = scene.title === place.textContent;
-    byId("scene-title").textContent = scene.title;
-    byId("scene-description").textContent = scene.text;
+    const title = byId("scene-title");
+    title.textContent = scene.title;
+    title.hidden = scene.title === scenario.nodes[state.node].place;
+    const detail = state.status === "playing" && !state.protection && !game.stranded(state) ? shot.observation : "";
+    byId("scene-description").textContent = [scene.text, detail].filter(Boolean).join(" ");
     const last = state.log.at(-1);
     const feedback = byId("feedback");
-    feedback.hidden = !last.turn || (state.status !== "playing" && !last.roll);
+    feedback.hidden = last.kind === "start" || state.status !== "playing";
     feedback.replaceChildren();
     if (feedback.hidden) return;
     feedback.classList.toggle("is-event", Boolean(last.event || last.kind === "blocked"));
@@ -118,22 +124,15 @@
     feedback.append(content);
   }
 
-  function meters(scenario) {
-    byId("risk-label").textContent = scenario.risk;
-    for (const [key, value] of [["hp", state.hp], ["risk", state.exposure]]) {
-      byId(key + "-number").textContent = value;
-      const meter = byId(key + "-meter");
-      meter.setAttribute("aria-valuenow", value);
-      meter.firstElementChild.style.width = value + "%";
-    }
-    byId("risk-meter").setAttribute("aria-label", scenario.risk);
-    const danger = state.hp <= 25 || state.exposure >= 80;
-    const warning = state.hp <= 55 || state.exposure >= 55;
-    const status = byId("status-label");
-    status.dataset.level = state.status === "escaped" ? "normal" : danger ? "danger" : warning ? "warn" : "normal";
-    status.textContent = state.status === "escaped" ? "대피 완료" : state.status !== "playing" ? "대피 중단" : danger ? "위험" : warning ? "주의" : "양호";
-    const notice = game.notice(state);
-    byId("hazard-note").replaceChildren(art.icon(notice.icon), document.createTextNode(notice.text));
+  function updateStatus() {
+    byId("scene-signal").textContent = game.situation(state).title;
+    byId("report-state").textContent = game.reportStatus(state);
+    const live = state.status === "playing", label = byId("status-label");
+    label.dataset.level = live ? "warn" : "normal";
+    label.textContent = game.statusLabel(state);
+    const text = state.archived ? "이전 규칙으로 진행한 판입니다." : state.id === "fire" ? "연기 유입과 대피 방송을 확인하세요." :
+      state.id === "quake" ? "진동이 다시 느껴지면 현재 위치에서 몸을 보호하세요." : "물살이 가로막는 길로 들어가지 마세요.";
+    byId("hazard-note").replaceChildren(art.icon("alert"), document.createTextNode(text));
   }
 
   function actions(scenario) {
@@ -146,20 +145,14 @@
     outcome.hidden = live;
     if (live) return;
     const stats = element("div", "outcome-stats");
-    for (const [label, value] of [["소요", state.elapsed + "턴"], ["남은 체력", state.hp], [scenario.risk, state.exposure]]) {
+    for (const [label, value] of [["경과", state.elapsed + "턴"], ["마지막 위치", game.currentPlace(state)], ["대응 결과", game.statusLabel(state)]]) {
       const cell = element("span", "", label);
       cell.append(element("strong", "", String(value)));
       stats.append(cell);
     }
     outcome.append(stats);
-    if (state.status !== "escaped") {
-      const hint = state.status === "exhausted" ? "비상식량으로 체력을 회복하거나 무전 구조를 시도해 보자." : "무전기는 중간 교신 지점에서 탈출할 수 있고, 손전등은 출구에서 쓰는 노출을 줄여 준다.";
-      outcome.append(element("p", "", [state.log.at(-1).review, hint].filter(Boolean).join(" · ")));
-    }
-    else {
-      outcome.append(element("p", "", state.log.at(-1).text));
-      outcome.append(element("p", "", state.visited.map(key => scenario.nodes[key].place).join(" → ")));
-    }
+    if (state.visited.length > 1) outcome.append(element("p", "", state.visited.map(key => scenario.nodes[key].place).join(" → ")));
+    outcome.append(field.guide(scenario));
     const controls = element("div", "button-row");
     const nextId = ids[(ids.indexOf(state.id) + 1) % ids.length];
     controls.append(makeButton("다시 도전", "primary-button", restartRun, "restart"),
@@ -168,7 +161,7 @@
   }
 
   function turnLabel(entry) {
-    return entry.turn ? String(entry.turn).padStart(2, "0") + "턴" : "시작";
+    return entry.kind === "start" ? "시작" : String(entry.turn).padStart(2, "0") + "턴";
   }
 
   function recentLog() {
@@ -186,36 +179,54 @@
 
   function render(animateRoll = false) {
     const scenario = maps.of(state);
-    updateScenario(scenario);
-    updateBriefing(scenario, animateRoll);
-    meters(scenario);
+    const hazardCost = game.hazardCost(state);
+    const shot = globalThis.DisasterScenes.at(scenario, state.node, hazardCost, state.protection);
+    updateScenario(scenario, shot, hazardCost);
+    updateBriefing(scenario, shot, animateRoll);
+    updateStatus();
     actions(scenario);
     map.render(state, selectedArea);
     recentLog();
     byId("save-status").querySelector("span").textContent = storage.canSave() ? "이 기기에 자동 저장" : "현재 창에서 진행 중 · 저장소 사용 불가";
   }
 
-  function takeAction(id, fromMap = false) {
+  function showReport(fromMap) {
+    const expected = state;
+    const details = game.reportDetails(state);
+    const list = element("dl", "report-fields");
+    for (const [name, value] of [["현재 위치", details.where], ["어떤 상황인지", details.what], ["인원과 상태", details.who]]) {
+      list.append(element("dt", "", name), element("dd", "", value));
+    }
+    const buttons = element("div", "button-row");
+    buttons.append(makeButton("상황 전달", "primary-button", () => {
+      dialog.close();
+      if (state === expected) takeAction("report", fromMap, true);
+    }, "phone"), makeButton("취소", "secondary-button", () => dialog.close()));
+    showDialog("119 신고 연습", element("p", "dialog-copy", "게임 속 휴대전화입니다. 신고할 위치와 인원, 현재 상황을 확인하세요."), list, buttons);
+  }
+
+  function takeAction(id, fromMap = false, confirmed = false) {
     if (!state || dialog.open) return;
+    if (id === "report" && !confirmed) { showReport(fromMap); return; }
     const mobile = window.matchMedia("(max-width: 799px)").matches;
-    const searchTop = mobile && id === "search"
-      ? byId("actions").querySelector('[data-action="search"]')?.getBoundingClientRect().top : undefined;
+    const previousNode = state.node;
     if (!game.advance(state, id)) return;
     const last = state.log.at(-1);
-    if (game.shaking(state)) view = "field";
-    else if (game.turnsToClose(state, state.node) === 0) view = "travel";
-    else if (id.startsWith("move:")) view = "field";
+    view = "field";
     selectedArea = state.node;
     saveActive();
     render(Boolean(last.roll));
     tone(last.kind);
-    byId("announcement").textContent = [last.title, last.roll && rollSummary(last.roll), last.text, last.event, game.situation(state).title, "체력 " + state.hp, "노출 " + state.exposure].filter(Boolean).join(". ");
+    byId("announcement").textContent = [last.title, last.roll && rollSummary(last.roll), last.text, last.event, game.situation(state).title].filter(Boolean).join(". ");
+    if (state.node !== previousNode) {
+      const panel = byId("scene-panel");
+      panel.focus({ preventScroll: true });
+      const top = panel.getBoundingClientRect().top;
+      if (top < 0 || top >= window.innerHeight) panel.scrollIntoView({ block: "start", behavior: "instant" });
+      return;
+    }
     const next = Array.from(byId("actions").children).find(button => button.dataset.action === id && !button.disabled);
     (next || byId("choices-title")).focus({ preventScroll: true });
-    // Keep a repeatable search under the player's finger when the roll report changes height.
-    if (next && searchTop >= 0 && searchTop < window.innerHeight) {
-      window.scrollBy({ top: next.getBoundingClientRect().top - searchTop, behavior: "instant" });
-    }
     if (fromMap && mobile) byId("choices-title").scrollIntoView({ block: "start" });
   }
 
@@ -239,7 +250,7 @@
     tone("action");
     byId("announcement").textContent = maps.of(state).title + ". " + game.situation(state).title;
     window.scrollTo({ top: 0, behavior: "instant" });
-    byId("briefing").focus({ preventScroll: true });
+    byId("scene-panel").focus({ preventScroll: true });
   }
 
   function showTitle(focus = true) {
@@ -325,37 +336,18 @@
   }
 
   function help() {
-    const intro = element("p", "dialog-copy", "지도에서 물자가 있는 지역을 고르고, 도보 탈출이나 무전 구조에 필요한 장비를 준비하세요. 메뉴와 지도를 살피는 동안에는 시간이 흐르지 않습니다.");
     const rules = element("ul", "help-rules");
     for (const text of [
-      "체력이 0이 되거나 위험 노출이 100에 닿으면 대피가 중단됩니다. 카드 아래 수치로 행동의 대가를 확인하세요.",
-      "주사위 표시가 있는 행동은 6면 주사위를 한 번 굴립니다. 눈이 목표 이상이면 성공합니다. 실패해도 한 턴이 지나고 표시된 만큼 노출이 늘어납니다. 체력 비용은 성공했을 때 적용됩니다.",
-      "집은 전체 지도를 알고, 직장은 통로 하나와 랜드마크 하나를 기억합니다. 여행지는 현재 위치에서 시작합니다. ‘주변 살피기’에 한 턴을 쓰면 연결된 길과 현재 지역의 물자를 기록합니다. 모르는 길도 곧장 들어갈 수 있습니다.",
-      "지역 이동에 표시된 이웃 지역은 다시 오갈 수 있습니다. 탐색에 성공하면 남은 물자 하나를 가방에 넣습니다. 실패하면 그곳에 단서가 남아 다음 탐색은 확정입니다.",
-      "가방은 네 칸입니다. 건전지와 본체를 조립하면 손전등 또는 구조 무전기가 됩니다. 손전등을 들면 탐색과 도보 탈출이 확정되고, 무전기는 교신 지점에서 바로 구조를 요청할 수 있습니다. 물자는 0턴에 현재 지역에 내려둘 수 있습니다.",
-      "경보에 표시된 턴이 지나면 해당 지역의 재진입과 탐색이 막힙니다. 안에 있다면 연결된 지역으로 빠져나갈 수 있습니다. 화재는 첫 통제 후 노출이 2 늘고, 홍수는 두 턴마다 최대 4까지 추가 노출이 오릅니다. 지진은 첫 턴과 이후 네 턴마다 몸을 보호해야 합니다.",
-      "시작 화면의 ‘게임 시작’에서 재난·장소·난이도를 고릅니다. 게임 중 ‘난이도 설정’에서 다음 판의 지도와 물자 단서를 정할 수 있습니다. PC에서는 카드의 숫자 키로 행동을 선택할 수 있습니다.",
-      "게임은 맵마다 자동 저장됩니다. ‘이어하기’로 기록을 열거나, 게임 메뉴에서 현재 판을 JSON 파일로 저장해 다른 브라우저에서 불러올 수 있습니다."
+      "현재 위치의 연기, 물살, 흔들림과 안내 방송을 읽고 행동을 고르세요. 지도를 보거나 선택지를 읽는 동안에는 턴이 지나지 않습니다.",
+      "대피, 몸 보호, 고립 신고는 선택하면 실행됩니다. ‘눈앞의 대피 표지 읽기’에서만 주사위를 굴려 추가로 읽어 낸 길을 지도에 기록합니다.",
+      "집에서는 지도를 기억하고, 직장에서는 일부를 기억합니다. 낯선 여행지는 현재 위치에서 시작합니다. 게임 시작과 난이도 설정에서 지도와 표지 단서를 조정할 수 있습니다.",
+      "문을 닫고 실내에서 방송을 듣거나 고립 위치를 신고하고 구조를 기다리는 것도 상황에 맞는 훈련 결과입니다. 여기에 나오는 주소와 119 신고는 게임 속 상황입니다.",
+      "게임은 장소별로 자동 저장됩니다. 메뉴에서 현재 판을 파일로 저장하거나 불러올 수 있습니다. 숫자 키로 화면의 행동 카드를 선택할 수 있습니다."
     ]) rules.append(element("li", "", text));
-    const references = element("details", "help-detail");
-    references.append(element("summary", "", "게임과 참고 자료"));
-    const note = element("p", "dialog-copy", "체력·노출·턴 수는 게임 수치입니다. 상황 묘사에는 재난별 국민행동요령을 참고했습니다.");
-    const links = element("div", "guide-links");
-    for (const [name, url] of [
-      ["화재 행동요령", "https://www.safekorea.go.kr/safekorea-kor/acts/nacts/action-guide.do?category=fires&menuSn=4"],
-      ["호우 행동요령", "https://mois.go.kr/frt/bbs/type002/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000530&nttId=117736"],
-      ["지진 행동요령", "https://www.isafe.go.kr/DATA/bbs/86/20241125023111026.pdf"],
-      ["Survive 공식 소개", "https://www.thesurvivegame.com/"],
-      ["블랙서바이벌 지역과 물자", "https://blacksurvival.fandom.com/wiki/Areas"]
-    ]) {
-      const link = element("a", "", name);
-      link.href = url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      links.append(link);
-    }
-    references.append(note, links);
-    showDialog("플레이 방법", intro, rules, references);
+    const refs = element("details", "help-detail");
+    refs.append(element("summary", "", "재난별 행동요령과 출처"));
+    for (const [id, venue] of [["fire", "home"], ["fire", "work"], ["flood", "home"], ["flood", "travel"], ["quake", "work"]]) refs.append(field.guide(maps.get(id, venue)));
+    showDialog("플레이 방법", rules, refs);
   }
 
   function fullLog() {
@@ -364,7 +356,6 @@
       const item = element("li");
       item.append(element("span", "log-turn", turnLabel(entry)), element("strong", "", entry.title), element("p", "", entry.text));
       if (entry.roll) item.append(element("p", "log-roll", rollSummary(entry.roll)));
-      if (entry.turn) item.append(element("p", "", "체력 " + signed(entry.hp) + " · 노출 " + signed(entry.exposure)));
       if (entry.event) item.append(element("p", "event-line", entry.event));
       list.append(item);
     }

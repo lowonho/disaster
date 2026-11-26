@@ -41,7 +41,6 @@
   function showSetup(id, venue, showDialog, begin, enter) {
     const form = element("form", "setup-form");
     const scene = element("div", "setup-scene"), image = element("img"), title = element("strong");
-    image.alt = "";
     scene.append(image, title);
     const hazard = selectField(form, "재난", "scenario", Object.entries(scenarios).map(([key, data]) => [key, data.short]));
     const place = selectField(form, "장소", "venue", Object.entries(maps.venues).map(([key, data]) => [key, data.name]));
@@ -85,7 +84,14 @@
     function updateMap() {
       const map = maps.get(hazard.value, place.value);
       title.textContent = map.title;
-      image.src = "assets/" + hazard.value + ".webp";
+      const shot = globalThis.DisasterScenes.at(map, "start");
+      image.alt = shot.alt;
+      image.src = shot.src;
+      for (const option of place.options) {
+        const venueName = maps.venues[option.value].name;
+        const site = maps.get(hazard.value, option.value).venueLabel;
+        option.textContent = site ? venueName + " · " + site : venueName;
+      }
       const next = storage.settingsFor(hazard.value, place.value);
       for (const option of mode.options) {
         if (maps.venues[option.value]) option.textContent = maps.venues[option.value].level + (option.value === place.value ? " · 장소 기본값" : "");

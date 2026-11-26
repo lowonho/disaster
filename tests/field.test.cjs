@@ -1,20 +1,21 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 require("../js/data/regions.js");
-require("../js/data/supplies.js");
+require("../js/legacy/supplies-v4.js");
 require("../js/data/maps.js");
-require("../js/knowledge.js");
+require("../js/legacy/maps-v4.js");
+require("../js/legacy/knowledge-v4.js");
 require("../js/legacy/scenarios-v2.js");
 require("../js/legacy/engine-v2.js");
-require("../js/engine.js");
+require("../js/legacy/field-v4.js");
 
-const game = globalThis.DisasterGame;
+const game = globalThis.DisasterFieldV4;
 const pass = () => 0.99;
 const noRoll = () => { throw Error("An automatic action attempted a roll"); };
 const option = (state, id) => game.choices(state).find(action => action.id === id);
 const take = (state, id, rng = pass) => assert.equal(game.advance(state, id, rng), true, state.id + " at " + state.node + " doing " + id);
 
-test("a search uses exactly one fair die, keeps missed loot and makes its clue reliable", () => {
+test("v4 save replay · a search uses exactly one fair die, keeps missed loot and makes its clue reliable", () => {
   for (let face = 1; face <= 6; face++) {
     const s = game.newRun("fire", 19);
     const initialPile = s.stock.start.slice();
@@ -41,7 +42,7 @@ test("a search uses exactly one fair die, keeps missed loot and makes its clue r
   }
 });
 
-test("connected areas can be revisited; closure prevents entry and search but lets an occupant leave", () => {
+test("v4 save replay · connected areas can be revisited; closure prevents entry and search but lets an occupant leave", () => {
   const s = game.newRun("fire", 0);
   assert.equal(game.advance(s, "move:last"), false);
   for (const id of ["move:b", "move:start", "move:b", "move:mid", "move:a"]) take(s, id, noRoll);
@@ -57,7 +58,7 @@ test("connected areas can be revisited; closure prevents entry and search but le
   assert.deepEqual(game.restore("fire", game.snapshot(s)), s);
 });
 
-test("a full bag, dropping, picking back up, eating and consuming recipe materials conserve supplies", () => {
+test("v4 save replay · a full bag, dropping, picking back up, eating and consuming recipe materials conserve supplies", () => {
   const s = game.newRun("fire", 0);
   for (const id of ["search", "search", "move:a", "search", "search", "move:mid"]) take(s, id);
   assert.equal(s.bag.length, 4);
@@ -87,7 +88,7 @@ function findItem(s, item) {
   while (!s.bag.includes(item)) act(s, "search");
 }
 
-test("every disaster supports a radio route and a lamp route across regions and closure schedules", () => {
+test("v4 save replay · every disaster supports a radio route and a lamp route across regions and closure schedules", () => {
   for (const id of ["fire", "flood", "quake"]) {
     for (const seed of [0, 1, 45, 90, 9177, 0x7fffffff, 0xffffffff]) {
       const radio = game.newRun(id, seed);
@@ -120,7 +121,7 @@ test("every disaster supports a radio route and a lamp route across regions and 
   }
 });
 
-test("a bare escape can fail; costs and loss take priority and a finished run is inert", () => {
+test("v4 save replay · a bare escape can fail; costs and loss take priority and a finished run is inert", () => {
   const s = game.newRun("flood", 1);
   take(s, "move:a"); take(s, "move:last");
   const health = s.hp;
@@ -136,7 +137,7 @@ test("a bare escape can fail; costs and loss take priority and a finished run is
   assert.deepEqual(game.restore("flood", game.snapshot(s)), s);
 });
 
-test("a v1 or v2 journal keeps its locations, vitals, former die faces and rescue contact", () => {
+test("v4 save replay · a v1 or v2 journal keeps its locations, vitals, former die faces and rescue contact", () => {
   const old = globalThis.DisasterLegacyGame;
   const v1 = { version: 1, open: "a", steps: ["signal", "scan", "main"] };
   const legacy = old.newRun("fire", "b");
@@ -152,7 +153,7 @@ test("a v1 or v2 journal keeps its locations, vitals, former die faces and rescu
   }
 });
 
-test("saves reject fabricated actions and die faces; a valid replay needs no random draws", t => {
+test("v4 save replay · saves reject fabricated actions and die faces; a valid replay needs no random draws", t => {
   const s = game.newRun("fire", 123);
   take(s, "search"); take(s, "move:b", noRoll);
   const saved = game.snapshot(s);

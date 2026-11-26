@@ -58,7 +58,7 @@
       const { run, date, nextSettings } = prepared;
       const map = maps.of(run);
       preview.append(element("strong", "", map.title), element("p", "", progress(run)),
-        element("p", "", "체력 " + run.hp + " · " + map.risk + " " + run.exposure + " · 가방 " + run.bag.length + "/" + globalThis.DisasterSupplies.capacity),
+        element("p", "", "확인한 장소 " + run.known.areas.length + "곳 · " + globalThis.DisasterGame.reportStatus(run)),
         element("p", "", "난이도 " + difficulty.level(run.settings) + " · " + difficulty.summary(run.settings)));
       if (!maps.sameSettings(nextSettings, run.settings)) preview.append(element("p", "", "다음 판 · " + difficulty.summary(nextSettings)));
       if (date) preview.append(element("small", "", date.toLocaleString("ko-KR") + " 저장"));
